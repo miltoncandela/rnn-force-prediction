@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import numpy as np
 
-lista_archivos = os.listdir('output_jsons')
+lista_archivos = os.listdir('output_jsons/voltereta/escalado')
 
 BODY_PARTES = ['Nose', 'Neck', 'RShoulder', 'RElbow', 'RWrist',
                'LShoulder', 'LElbow', 'LWrist', 'MidHip', 'RHip',
@@ -18,7 +18,7 @@ df = df.T
 
 for i, archiv in enumerate(lista_archivos):
     data = []
-    archivo = 'output_jsons/' + archiv
+    archivo = 'output_jsons/voltereta/escalado/' + archiv
     with open(archivo) as f:
         for line in f:
             data.append(json.loads(line))
@@ -34,3 +34,5 @@ for i, archiv in enumerate(lista_archivos):
 df.drop(0, axis = 0, inplace = True)
 df.index = range(0, len(df.iloc[:,1]))
 print(df)
+
+df.to_csv('CoordenadasXY_Voltereta_Esc.csv')
