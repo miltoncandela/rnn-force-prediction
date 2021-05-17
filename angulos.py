@@ -84,6 +84,9 @@ df_angs.index = range(0, len(df_angs.iloc[:,0]))
 
 funciones = [np.max, np.min, np.mean, np.median]
 print(df_angs.agg(dict(zip(df_angs.columns, [funciones] * len(df_angs.columns)))))
+print(df_angs.describe().loc[['mean', 'std', 'min', '25%', '50%', '75%', 'max']])
+
+df_angs.to_csv('df_angulos.csv')
 
 # cos(theta) = (u * v)/(mu * mv)
 #num = ux * vx + uy * vy
