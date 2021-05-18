@@ -3,8 +3,16 @@ import pandas as pd
 import re
 import numpy as np
 import matplotlib.pyplot as plt
+import multiprocessing
 
-def coordsPlot(df, res, nombre, refresco = 0.1):
+def coordsPlot(carpeta, res, refresco = 0.1):
+
+    if(len(carpeta.split('_')) == 2):
+        nombre = carpeta.split('_')[0] + '.mp4 (Escalado)'
+    else:
+        nombre = carpeta + '.mp4'
+    camino = 'JSON_to_CSVs/CoordenadasXY_' + carpeta + '.csv'
+    df = pd.read_csv(camino, index_col = 0)
     columns = df.columns
 
     coordxV = []
@@ -56,12 +64,11 @@ estudiante_res = (1920, 1080)
 voltereta_res = (1280, 720)
 escalado_res = (299, 299)
 
-dfEst = pd.read_csv('CoordenadasXY_TiroLibre.csv', index_col = 0)
-dfVolt = pd.read_csv('CoordenadasXY_Voltereta.csv', index_col = 0)
-dfVoltEsc = pd.read_csv('CoordenadasXY_Voltereta_Esc.csv', index_col = 0)
-dfEstEsc = pd.read_csv('CoordenadasXY_Estudiante_Esc.csv', index_col = 0)
-
-#coordsPlot(dfEst, estudiante_res, 'TirolibreEstudiante.mp4')
-#coordsPlot(dfVolt, voltereta_res, 'Voltereta.mp4')
-#coordsPlot(dfVoltEsc, escalado_res, 'Voltereta.mp4 (Escalado)')
-coordsPlot(dfEstEsc, escalado_res, 'TiroLibreEstudiante.mp4 (Escalado)')
+if __name__ == '__main__':
+    proc1 = multiprocessing.Process(target = coordsPlot, args = ('Pers1_Esc', escalado_res))
+    plt.plot()
+    proc2 = multiprocessing.Process(target = coordsPlot, args = ('Pers2_Esc', escalado_res))
+    proc1.start()
+    proc2.start()
+    proc1.join()
+    proc2.join()
