@@ -52,11 +52,13 @@ def from_JSON_to_CSV(carpeta, res_actual, escalado = True, res_objetivo = (299, 
     df.drop(0, axis = 0, inplace = True)
     df.index = range(0, len(df.iloc[:,1]))
 
+    print(nombre_csv)
     df.to_csv(nombre_csv)
     return(df)
 
-nombres = ['Mau1', 'Mau2', 'Mau3', 'Pers1', 'Pers2', 'Pers3', 'Rafa1', 'Rafa2', 'Rafa3']
-nombres = nombres[4:5]
-for name in nombres:
-    print(name)
-    print(from_JSON_to_CSV(name, hexi_res))
+print(from_JSON_to_CSV('Estudiante', estudiante_res, escalado = False))
+#nombres = ['Mau1', 'Mau2', 'Mau3', 'Pers1', 'Pers2', 'Pers3', 'Rafa1', 'Rafa2', 'Rafa3']
+#nombres = nombres[4:5]
+#for name in nombres:
+#    print(name)
+#    print(from_JSON_to_CSV(name, hexi_res))

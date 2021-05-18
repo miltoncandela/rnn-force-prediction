@@ -35,7 +35,7 @@ def get_ang(u, v):
 
 def angDfCreate(nombre):
     nombre_csv = 'JSON_to_CSVs/CoordenadasXY_' + nombre + '.csv'
-    df = pd.read_csv('JSON_to_CSVs/CoordenadasXY_Voltereta.csv', index_col = 0)
+    df = pd.read_csv(nombre_csv, index_col = 0)
     df_angs = pd.DataFrame(data = np.ones(len(angulos.keys())), index = angulos.keys())
     df_angs = df_angs.T
 

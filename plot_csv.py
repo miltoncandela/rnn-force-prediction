@@ -64,10 +64,12 @@ estudiante_res = (1920, 1080)
 voltereta_res = (1280, 720)
 escalado_res = (299, 299)
 
+#coordsPlot('Voltereta_Esc', escalado_res)
+
 if __name__ == '__main__':
-    proc1 = multiprocessing.Process(target = coordsPlot, args = ('Pers1_Esc', escalado_res))
+    proc1 = multiprocessing.Process(target = coordsPlot, args = ('Voltereta', voltereta_res))
     plt.plot()
-    proc2 = multiprocessing.Process(target = coordsPlot, args = ('Pers2_Esc', escalado_res))
+    proc2 = multiprocessing.Process(target = coordsPlot, args = ('Voltereta_Esc', escalado_res))
     proc1.start()
     proc2.start()
     proc1.join()
