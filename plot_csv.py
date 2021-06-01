@@ -1,7 +1,5 @@
 ## Make a matplotlib plot from XY coordinates
 import pandas as pd
-import re
-import numpy as np
 import matplotlib.pyplot as plt
 import multiprocessing
 
