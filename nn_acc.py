@@ -13,6 +13,7 @@ df = pd.read_csv('JSON_to_CSVs/CoordenadasXY_Voltereta_Esc.csv', index_col = 0)
 def points_extract(row):
     return(row.strip('()\s').replace(' ', '').split(','))
 
+df = df.loc[:,['Nose', 'Neck']]
 def serieParte(df):
     s = pd.Series({'Pixeles' : 0})
     for column in df.columns:
@@ -103,23 +104,22 @@ X_train , X_test, y_train, y_test = model_selection.train_test_split(X, Y, train
 def crear_modelo():
     modelo = keras.Sequential([
         #layers.Flatten(input_shape = X_train.shape),
+
         layers.Dense(64, activation = tf.nn.relu, input_shape = [len(X.columns)]),
-        layers.Dense(64, activation=tf.nn.softmax), layers.Dense(64, activation=tf.nn.sigmoid),
-        layers.Dense(64, activation=tf.nn.tanh), layers.Dense(32, activation=tf.nn.tanh),
-        layers.Dense(16, activation=tf.nn.tanh),
+        layers.Dense(64, activation = tf.nn.softmax), layers.Dense(32, activation = tf.nn.tanh),
         layers.Dense(1)])
 
     optimizer = tf.keras.optimizers.RMSprop(0.01)
     #opt = SGD(lr=0.01, momentum=0.9)
 
     metrics = ['mae', 'mse']
-    modelo.compile(loss = 'mean_squared_error',
-                  optimizer = optimizer,
+    modelo.compile(loss = 'mse',
+                  optimizer = 'adam',
                   metrics = ['mae', 'mse'])
     return (modelo)
 modelo = crear_modelo()
 
-epoch = 1000
+epoch = 300
 history = modelo.fit(
     X_train, y_train, epochs = epoch, validation_split = 0.2, verbose = 2)
 
@@ -130,14 +130,35 @@ print(predichos.shape)
 #predichos = np.reshape(predichos, (388, 1))
 print(predichos.shape)
 print(y_test.shape)
+
+def clas(x):
+    # Clas 1 = -
+    # Clas 2 = 0
+    # Clas 3 = +
+    if(x > 0):
+        return(3)
+    if(x == 0):
+        return(2)
+    if(x < 0):
+        return(1)
+
 y_test = np.round(y_test)
 predichos = np.round(predichos)
 s1 = pd.Series(list(y_test))
+#s1 = s1.apply(lambda x: clas(x))
 s2 = pd.Series(list(predichos))
+#s2 = s2.apply(lambda x: clas(x))
 frame = {'ref' : s1, 'pred' : s2}
 df_pred = pd.DataFrame(frame)
 print(df_pred)
 print(np.round(np.sum(predichos == y_test)/len(y_test), 2))
+
+s1 = s1.apply(lambda x: clas(x))
+s2 = s2.apply(lambda x: clas(x))
+frame = {'ref' : s1, 'pred' : s2}
+df_pred = pd.DataFrame(frame)
+print(df_pred)
+print(np.round(np.sum(df_pred.ref == df_pred.pred)/len(df_pred.index), 2))
 
 import matplotlib.pyplot as plt
 def plot_history(history):
