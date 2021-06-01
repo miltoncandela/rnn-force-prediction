@@ -38,7 +38,7 @@ class PrintDot(keras.callbacks.Callback):
         if epoch % 100 == 0: print('')
         print('.', end = '')
 
-EPOCHS = 1000
+EPOCHS = 5000
 
 history = modelo.fit(
     df_norm, labels, epochs = EPOCHS, validation_split = 0.2,
