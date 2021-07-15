@@ -104,10 +104,10 @@ y_true = np.array(test_output)
 #print(np.mean(score))
 print(y_pred)
 print(y_true)
-print(escalador.inverse_transform(y_pred[:,0].reshape(1,-1)))
-print(escalador.inverse_transform(y_true[:,0].reshape(1,-1)))
+#print(escalador.inverse_transform(y_pred[:,0].reshape(1,-1)))
+#print(escalador.inverse_transform(y_true[:,0].reshape(1,-1)))
 
-for num in [0,1,3]:
+for num in [0,1,2]:
     plt.plot(y_pred[:,num], 'y', label = 'Y Prediction')
     plt.plot(y_true[:,num], 'r', label = 'Y True')
     #plt.plot(y_pred[:,1], 'y', label = 'Y Prediction 2')
