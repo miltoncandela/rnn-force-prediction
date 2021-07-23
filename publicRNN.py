@@ -41,7 +41,6 @@ def getdf(vel):
 df_both_25, df_both_35, df_both_45 = getdf('T25'), getdf('T35'), getdf('T45')
 
 df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
-#df_both = df_both_25
 df_both.index = range(len(df_both.index))
 print(df_both)
 
@@ -62,6 +61,8 @@ columnas = train.columns
 train_scaled = pd.DataFrame(escalador.transform(train), columns = columnas)
 valid_scaled = pd.DataFrame(escalador.transform(valid), columns = columnas)
 test_scaled = pd.DataFrame(escalador.transform(test), columns = columnas)
+
+batch_size = train_scaled.shape[0]/4
 
 import matplotlib.pyplot as plt
 
@@ -141,16 +142,16 @@ from tensorflow.keras.layers import Dense, Dropout, LSTM, SimpleRNN
 
 model = Sequential()
 model.add(SimpleRNN(200, return_sequences = True, input_shape = (seq_size, n_features)))
-model.add(Dropout(.6))
+model.add(Dropout(.8))
 model.add(SimpleRNN(200, return_sequences = True))
-model.add(Dropout(.6))
+model.add(Dropout(.8))
 model.add(SimpleRNN(100))
-model.add(Dropout(.3))
+model.add(Dropout(.6))
 model.add(Dense(3))
 
 model.compile(loss = tf.keras.losses.MeanSquaredError(), optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001), metrics = ['mae', 'mse', 'acc'])
 model.summary()
-history = model.fit(train_generator, validation_data = valid_generator, epochs = 50, verbose = 2)
+history = model.fit(train_generator, validation_data = valid_generator, epochs = 125, verbose = 2, batch_size = batch_size)
 
 def plot_history(history):
     hist = pd.DataFrame(history.history)
