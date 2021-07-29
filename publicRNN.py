@@ -43,6 +43,7 @@ df_both_25, df_both_35, df_both_45 = getdf('T25'), getdf('T35'), getdf('T45')
 df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
 df_both.index = range(len(df_both.index))
 print(df_both)
+print(df_both.shape)
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
@@ -140,18 +141,29 @@ from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, LSTM, SimpleRNN
 
-model = Sequential()
-model.add(SimpleRNN(200, return_sequences = True, input_shape = (seq_size, n_features)))
-model.add(Dropout(.8))
-model.add(SimpleRNN(200, return_sequences = True))
-model.add(Dropout(.8))
-model.add(SimpleRNN(100))
-model.add(Dropout(.6))
-model.add(Dense(3))
+EPOCH = 125
+def create_model(EPOCH, name = 0):
+    model = Sequential()
+    model.add(SimpleRNN(200, return_sequences = True, input_shape = (seq_size, n_features)))
+    model.add(Dropout(.8))
+    model.add(SimpleRNN(200, return_sequences = True))
+    model.add(Dropout(.8))
+    model.add(SimpleRNN(100))
+    model.add(Dropout(.6))
+    model.add(Dense(3))
 
-model.compile(loss = tf.keras.losses.MeanSquaredError(), optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001), metrics = ['mae', 'mse', 'acc'])
+    model.compile(loss = tf.keras.losses.MeanSquaredError(), optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001), metrics = ['mae', 'mse', 'acc'])
+    model.summary()
+    EPOCH = 125
+    history = model.fit(train_generator, validation_data = valid_generator, epochs = EPOCH, verbose = 2, batch_size = batch_size)
+    if name != 0:
+        model.save(name)
+    return(model, history)
+# model, history = create_model(EPOCH)
+def load_model(name):
+    return(keras.models.load_model(name))
+model = load_model('all_125_8.h5')
 model.summary()
-history = model.fit(train_generator, validation_data = valid_generator, epochs = 125, verbose = 2, batch_size = batch_size)
 
 def plot_history(history):
     hist = pd.DataFrame(history.history)
@@ -180,18 +192,66 @@ def plot_history(history):
     plt.plot(hist['epoch'], hist['val_acc'], label = 'Val Accuracy')
     plt.legend()
     plt.show()
-plot_history(history)
+#plot_history(history)
+
+#y_pred = model.predict(test_generator)
+#y_pred = np.concatenate((np.full((seq_size - 1,3),np.nan), y_pred))
+#y_pred = np.array(pd.DataFrame({'F_x' : y_pred[:,0], 'F_y' : y_pred[:,1], 'F_z' : y_pred[:,2]}).fillna(method = 'bfill', axis = 0))
+#y_true = np.array(test_output)
+
+#print('Dimensiones de la predicción:', y_pred.shape)
+#print('Dimensiones de la real:', y_true.shape)
+from scipy.stats.stats import pearsonr
+
+def evaluacion_modelo(y_pred, y_true):
+    y_pred = np.concatenate((y_pred, np.full((seq_size - 1, 3), np.nan)))
+    y_pred = np.array(pd.DataFrame({'F_x': y_pred[:, 0], 'F_y': y_pred[:, 1], 'F_z': y_pred[:, 2]}).fillna(method='ffill', axis=0))
+
+    from sklearn.metrics import r2_score
+    scores_r2 = [np.abs(r2_score(y_true[:, num], y_pred[:, num])) for num in range(3)]
+
+    from scipy.stats.stats import pearsonr
+    scores_pearson = [np.abs(pearsonr(y_true[:, num], y_pred[:, num])[0]) for num in range(3)]
+    p_pearson = [np.abs(pearsonr(y_true[:, num], y_pred[:, num])[1]) for num in range(3)]
+
+    print('Pearson correlation:', scores_pearson)
+    print('Pearson correlation (mean):', round(np.mean(scores_pearson),4))
+    print('P-value:', p_pearson)
+    print('P-value (mean):', round(np.mean(p_pearson), 4))
+    print('Coefficient of determination:', scores_r2)
+    print('Coefficient of determination (mean):', round(np.mean(scores_r2), 4))
+    return (scores_r2, round(np.mean(scores_r2), 4))
+print('*** Training evaluation ***')
+train_scores, train_det = evaluacion_modelo(model.predict(train_generator), np.array(train_output))
+print('*** Validation evaluation ***')
+valid_scores, valid_det = evaluacion_modelo(model.predict(valid_generator), np.array(valid_output))
+print('*** Testing evaluation ***')
+test_scores, test_det = evaluacion_modelo(model.predict(test_generator), np.array(test_output))
+det_scores = [train_det, valid_det, test_det]
+x_scores = [train_scores[0], valid_scores[0], test_scores[0]]
+y_scores = [train_scores[1], valid_scores[1], test_scores[1]]
+z_scores = [train_scores[2], valid_scores[2], test_scores[2]]
+
+bars = ('Training', 'Validation', 'Testing')
+barWidth = 0.15
+y_pos = np.arange(len(bars))
+nombres = ['F_x', 'F_y', 'F_z', 'Mean']
+colores = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+for i, score in enumerate([x_scores, y_scores, z_scores, det_scores]):
+    plt.bar([x + barWidth*i for x in y_pos], score, width = barWidth, label = nombres[i], color = colores[i])
+ax = plt.gca()
+plt.title('Coefficient of determination (R Squared) across datasets ({} Epochs)'.format(EPOCH))
+plt.ylabel('Coefficient of determination ($R^{2}$)')
+plt.xticks([r + barWidth*1.5 for r in y_pos], bars)
+ax = plt.gca()
+ax.set_ylim([0,1])
+plt.legend()
+plt.show()
 
 y_pred = model.predict(test_generator)
+y_pred = np.concatenate((y_pred, np.full((seq_size - 1,3),np.nan)))
+y_pred = np.array(pd.DataFrame({'F_x' : y_pred[:,0], 'F_y' : y_pred[:,1], 'F_z' : y_pred[:,2]}).fillna(method = 'ffill', axis = 0))
 y_true = np.array(test_output)
-
-print('Dimensiones de la predicción:', y_pred.shape)
-print('Dimensiones de la real:', y_true.shape)
-
-#from sklearn.metrics import r2_score
-#scores_r2 = [np.abs(r2_score(y_true[:,num],y_pred[:,num])) for num in range(3)]
-#print('Coeficientes de determinación:', scores_r2)
-#print('Coeficiente de determinación promedio:', np.mean(scores_r2))
 
 def invEscalador(y, escalador):
     df = pd.DataFrame(dict(zip(test_scaled.columns, np.ones(y.shape[0]))), index=range(y.shape[0]))
