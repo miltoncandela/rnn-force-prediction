@@ -6,7 +6,9 @@
 # For each run, a single XYZ force is extracted, and thus source (independent) variables would be the markers positions
 # while the target (dependent) variables would be the forces, for each dimension (X, Y, Z).
 
-# WARNING: Numpy version == 1.19.5, otherwise data could not be transformed into a generator and further into RNN.
+# WARNING: Numpy version == 1.19.5, otherwise data could not be transformed into a generator and further into RNN:
+# NotImplementedError: Cannot convert a symbolic Tensor (simple_rnn/strided_slice:0) to a numpy array.
+# This error may indicate that you're trying to pass a Tensor to a NumPy call, which is not supported
 
 import pandas as pd
 import numpy as np
@@ -14,6 +16,13 @@ import os
 import re
 import matplotlib.pyplot as plt
 from sys import exit
+import tensorflow as tf
+available_devices = tf.config.experimental.list_physical_devices('GPU')
+if len(available_devices) > 0:
+    for gpu in tf.config.experimental.list_physical_devices('GPU'):
+        tf.config.experimental.set_virtual_device_configuration(gpu, [
+            tf.config.experimental.VirtualDeviceConfiguration(memory_limit=5120)])
+        # tf.config.experimental.set_memory_growth(gpu, True)
 
 
 def get_df(vel):
@@ -73,7 +82,7 @@ def get_df(vel):
 
 # Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
 df_both_25, df_both_35, df_both_45 = get_df('T25'), get_df('T35'), get_df('T45')
-df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
+df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True).astype(np.float32)
 df_both.index = range(df_both.shape[0])
 print(df_both.head())
 print(df_both.shape)
@@ -88,6 +97,7 @@ train_set, test = df_both[:int(n * P_TEST)], df_both[int(n * P_TEST):]
 P_VALID = 0.7
 n = train_set.shape[0]
 train, valid = train_set[:int(n * P_VALID)], train_set[int(n * P_VALID):]
+print(train.shape, valid.shape, test.shape)
 
 # Due to the use of Deep Learning, data must be normalized, and so MinMaxScaler would be used to fulfill this task,
 # the only known information is the training dataset, and so the scaler would be fitted into this dataset and further
@@ -103,11 +113,11 @@ train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
 valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
 test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
 
-BATCH_SIZE = 200
+BATCH_SIZE = 500
 SEQ_SIZE = 5
 
-# from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
-from tensorflow.keras.preprocessing import timeseries_dataset_from_array
+from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
+# from tensorflow.keras.preprocessing import timeseries_dataset_from_array
 
 
 def df_to_generator(df_scaled):
@@ -121,13 +131,13 @@ def df_to_generator(df_scaled):
     """
 
     df_output = df_scaled[['Fx', 'Fy', 'Fz']]
-    df_scaled.drop(['Fx', 'Fy', 'Fz'], inplace=True, axis=1)
 
-    # n_features = df_scaled.shape[1]
-    # df_generator = TimeseriesGenerator(data = np.array(df_scaled), targets = np.array(df_output),
-    #                                    length = seq_size, batch_size = n_features)
-    df_generator = timeseries_dataset_from_array(data=np.array(df_scaled), targets=np.array(df_output),
-                                                 sequence_length=SEQ_SIZE)
+    n_features = df_scaled.shape[1]
+    df_generator = TimeseriesGenerator(data=np.array(df_scaled), targets=np.array(df_output),
+                                       length=SEQ_SIZE, batch_size=n_features)
+    # df_generator = timeseries_dataset_from_array(data=np.array(df_scaled), targets=np.array(df_output),
+    #                                              sequence_length=SEQ_SIZE)
+    df_scaled.drop(['Fx', 'Fy', 'Fz'], inplace=True, axis=1)
     return df_scaled, df_output, df_generator
 
 
@@ -137,26 +147,19 @@ test_scaled, test_output, test_generator = df_to_generator(test_scaled)
 
 # Imports tensorflow library, which has deep learning function to build and train a Recurrent Neural Network, further
 # code also sets up a GPU with 2GB as a virtual device for faster training, in case the user has one physical GPU.
-import tensorflow as tf
-available_devices = tf.config.experimental.list_physical_devices('GPU')
-if len(available_devices) > 0:
-    for gpu in tf.config.experimental.list_physical_devices('GPU'):
-        tf.config.experimental.set_virtual_device_configuration(gpu, [
-            tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)])
-        # tf.config.experimental.set_memory_growth(gpu, True)
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, SimpleRNN
 
 
-def create_model(name=None):
+def create_model(model_name=None):
     """
     Using tensorflow and keras, this function builds a sequential model with a RNN architecture, based on layers such
     as SimpleRNN, Dropout and a final Dense layer for the output. When it finishes training, the model is saved on the
     "saved_models" folder when the name parameter is different than None, the function also plots the metrics with
     respect to the number of epochs involve during the computation.
 
-    :param string name: Name of the file on which the model would be saved.
-    :return tf.keras.models.Sequential: An already trained RNN, trained using the designated train_generator.
+    :param string model_name: Name of the file on which the model would be saved.
+    :return object: An already trained RNN, trained using the designated train_generator.
     """
 
     rnn = Sequential()
@@ -170,22 +173,22 @@ def create_model(name=None):
 
     rnn.compile(loss=tf.keras.losses.MeanSquaredError(), metrics=METRICS.keys(),
                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
-    history = rnn.fit(train_generator, validation_data=valid_generator,
+    history = rnn.fit(train_generator, validation_data=valid_generator, shuffle=False,
                       epochs=EPOCH, verbose=2, batch_size=BATCH_SIZE)
-    if name is not None:
-        rnn.save('saved_models/' + name + '.h5')
+    if model_name is not None:
+        rnn.save('saved_models/{}_E{}_S{}_B{}.h5'.format(model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
 
     hist = pd.DataFrame(history.history)
     hist['epoch'] = history.epoch
 
     for metric in METRICS.keys():
-        plt.figure()
+        metrics_fig = plt.figure()
         plt.xlabel('Epoch')
         plt.ylabel(METRICS[metric])
         plt.plot(hist['epoch'], hist[metric], label='Training')
         plt.plot(hist['epoch'], hist['val_' + metric], label='Validation')
         plt.legend()
-        plt.show()
+        metrics_fig.savefig('figures/{}_{}.png'.format(model_name, metric))
 
     return rnn
 
@@ -193,15 +196,17 @@ def create_model(name=None):
 # The following chunks of code represents two ways a RNN model could be generated, either by CREATING or IMPORTING,
 # please comment or uncomment the lines of code depending on the desired outcome.
 
-N_FEATURES = train_scaled.shape[1]
+N_FEATURES = train_scaled.shape[1] + 3
 METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)', 'acc': 'Accuracy'}
-EPOCH = 125
+EPOCH = 15
 
 # CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-model = create_model()
+name = 'all_target'
+model = create_model(name)
 
 # IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
 # from tensorflow.keras.models import load_model
+# name = 'forward_using_target.h5'
 # model = load_model('saved_models/' + name)
 
 try:
@@ -221,16 +226,16 @@ def model_evaluation(predictions, true_values):
     float which is the mean value of all coefficients of determination.
     """
 
-    predictions = np.concatenate((predictions, np.full((SEQ_SIZE - 1, 3), np.nan)))
-    predictions = np.array(pd.DataFrame({'F_x': predictions[:, 0], 'F_y': predictions[:, 1],
-                                         'F_z': predictions[:, 2]}).fillna(method='ffill', axis=0))
+    # predictions = np.concatenate((predictions, np.full((SEQ_SIZE - 1, 3), np.nan)))
+    # predictions = np.array(pd.DataFrame({'F_x': predictions[:, 0], 'F_y': predictions[:, 1],
+    #                                      'F_z': predictions[:, 2]}).fillna(method='ffill', axis=0))
 
     from sklearn.metrics import r2_score
-    scores_r2 = [np.abs(r2_score(true_values[:, num], predictions[:, num])) for num in range(3)]
+    scores_r2 = [np.abs(r2_score(true_values[SEQ_SIZE:, num], predictions[:, num])) for num in range(3)]
 
     from scipy.stats.stats import pearsonr
-    scores_pearson = [np.abs(pearsonr(true_values[:, num], predictions[:, num])[0]) for num in range(3)]
-    p_pearson = [np.abs(pearsonr(true_values[:, num], predictions[:, num])[1]) for num in range(3)]
+    scores_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[0]) for num in range(3)]
+    p_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1]) for num in range(3)]
 
     print('Pearson correlation:', scores_pearson)
     print('Pearson correlation (mean):', np.round(np.mean(scores_pearson), 4))
@@ -262,6 +267,7 @@ y_pos = np.arange(len(bars))
 names = ['F_x', 'F_y', 'F_z', 'Mean']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
+r2_fig = plt.figure()
 for i, score in enumerate([x_scores, y_scores, z_scores, det_scores]):
     plt.bar([x + BAR_WIDTH*i for x in y_pos], score, width=BAR_WIDTH, label=names[i], color=colors[i])
 plt.title('Coefficient of determination (R Squared) across datasets ({} Epochs)'.format(EPOCH))
@@ -270,16 +276,16 @@ plt.xticks([r + BAR_WIDTH*1.5 for r in y_pos], bars)
 ax = plt.gca()
 ax.set_ylim([0, 1])
 plt.legend()
-plt.show()
+r2_fig.savefig('figures/{}_r2_barplot.png'.format(name))
 
 # Based on the procedure used on model_evaluation, the trained RNN would be used to predict the forces using the
 # markers dataset, and so manually manipulate both the true values as well as the predicted values.
 
 y_prediction = model.predict(test_generator)
-y_prediction = np.concatenate((y_prediction, np.full((SEQ_SIZE - 1, 3), np.nan)))
-y_prediction = np.array(pd.DataFrame({'F_x': y_prediction[:, 0], 'F_y': y_prediction[:, 1],
-                                      'F_z': y_prediction[:, 2]}).fillna(method='ffill', axis=0))
-y_true = np.array(test_output)
+# y_prediction = np.concatenate((y_prediction, np.full((SEQ_SIZE - 1, 3), np.nan)))
+# y_prediction = np.array(pd.DataFrame({'F_x': y_prediction[:, 0], 'F_y': y_prediction[:, 1],
+#                                       'F_z': y_prediction[:, 2]}).fillna(method='ffill', axis=0))
+y_true = np.array(test_output)[SEQ_SIZE:, :]
 
 
 def inv_scaler(y, current_scaler):
@@ -320,13 +326,14 @@ def plot_results(predictions, true_values):
     """
 
     for idx, force in enumerate(['Fx', 'Fy', 'Fz']):
+        forces_fig = plt.figure()
         plt.plot(predictions[:100, idx], 'y', label='Predicted')
         plt.plot(true_values[:100, idx], 'r', label='True')
         plt.title('True and predicted force of {}'.format(force))
         plt.xlabel('Index')
         plt.ylabel('Force (N)')
         plt.legend()
-        plt.show()
+        forces_fig.savefig('figures/{}_predict_{}.png'.format(name, force))
 
 
 plot_results(y_prediction_esc[:100, :], y_true_esc[:100, :])
