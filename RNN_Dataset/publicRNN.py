@@ -16,6 +16,7 @@ import os
 import re
 import matplotlib.pyplot as plt
 from sys import exit
+from random import randint, seed, sample
 import tensorflow as tf
 available_devices = tf.config.experimental.list_physical_devices('GPU')
 if len(available_devices) > 0:
@@ -48,11 +49,15 @@ def get_df(vel):
     # the current read file into a main DataFrame, which is called "df_forces".
     forces_columns = pd.read_csv(path + file_list[forces_idx[0]], nrows=0, sep='\t',
                                  index_col='Time').loc[:, ['Fx', 'Fy', 'Fz']].columns
-    df_forces = pd.DataFrame(columns=forces_columns)
+    info_columns = list(forces_columns) + ['ID', 'Speed']
+    df_forces = pd.DataFrame(columns=info_columns)
     for idx in forces_idx:
         df_temp = pd.read_csv(path + file_list[idx], sep='\t', index_col='Time').loc[:, ['Fx', 'Fy', 'Fz']]
+        df_temp['ID'], df_temp['Speed'] = ([file_list[idx][4:7]] * df_temp.shape[0],
+                                           [file_list[idx][11:13]] * df_temp.shape[0])
         df_forces = pd.concat([df_forces, df_temp], ignore_index=True)
-    df_forces.index = range(0, df_forces.shape[0])
+    df_forces = df_forces.reset_index(drop=True)
+    df_forces['ID'], df_forces['Speed'] = pd.Categorical(df_forces.ID), pd.Categorical(df_forces.Speed)
 
     # A similar for loop is being implemented for the markers indices, although, the index of this DataFrame corresponds
     # to 2n, due to a difference in sampling frequency between forces and markers. And thus "space" needs to be
@@ -82,22 +87,25 @@ def get_df(vel):
 
 # Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
 df_both_25, df_both_35, df_both_45 = get_df('T25'), get_df('T35'), get_df('T45')
-df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True).astype(np.float32)
-df_both.index = range(df_both.shape[0])
+df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True).astype(np.float32).reset_index(drop=True)
 print(df_both.head())
 print(df_both.shape)
+
+train_ids = list(set(df_both.ID))
+seed(200)
+test_ids = sample(train_ids, 6)
+seed(500)
+valid_ids = sample(list(set(train_ids) - set(test_ids)), 3)
+print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
+print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
+      round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
 
 # The whole dataset is divided to a training, validation and testing set. P_TEST defines the ratio from the dataset
 # into the train_set and test dataset, while P_VALID defines the ratio from the train_set to training and validation.
 
-P_TEST = 0.8
-n = df_both.shape[0]
-train_set, test = df_both[:int(n * P_TEST)], df_both[int(n * P_TEST):]
-
-P_VALID = 0.7
-n = train_set.shape[0]
-train, valid = train_set[:int(n * P_VALID)], train_set[int(n * P_VALID):]
-print(train.shape, valid.shape, test.shape)
+train = df_both[~df_both.ID.isin(valid_ids + test_ids)].drop(['ID', 'Speed'], axis=1)
+valid = df_both[df_both.ID.isin(valid_ids)].drop(['ID', 'Speed'], axis=1)
+test = df_both[df_both.ID.isin(test_ids)].drop(['ID', 'Speed'], axis=1)
 
 # Due to the use of Deep Learning, data must be normalized, and so MinMaxScaler would be used to fulfill this task,
 # the only known information is the training dataset, and so the scaler would be fitted into this dataset and further
@@ -113,6 +121,7 @@ train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
 valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
 test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
 
+# Tokens de inicio y final para separar los ultimos valores de los sujetos en training, validation y testing.
 BATCH_SIZE = 500
 SEQ_SIZE = 5
 
@@ -131,13 +140,14 @@ def df_to_generator(df_scaled):
     """
 
     df_output = df_scaled[['Fx', 'Fy', 'Fz']]
+    df_scaled.drop(['Fx', 'Fy', 'Fz'], inplace=True, axis=1)
 
     n_features = df_scaled.shape[1]
     df_generator = TimeseriesGenerator(data=np.array(df_scaled), targets=np.array(df_output),
                                        length=SEQ_SIZE, batch_size=n_features)
     # df_generator = timeseries_dataset_from_array(data=np.array(df_scaled), targets=np.array(df_output),
     #                                              sequence_length=SEQ_SIZE)
-    df_scaled.drop(['Fx', 'Fy', 'Fz'], inplace=True, axis=1)
+
     return df_scaled, df_output, df_generator
 
 
@@ -148,7 +158,7 @@ test_scaled, test_output, test_generator = df_to_generator(test_scaled)
 # Imports tensorflow library, which has deep learning function to build and train a Recurrent Neural Network, further
 # code also sets up a GPU with 2GB as a virtual device for faster training, in case the user has one physical GPU.
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, SimpleRNN
+from tensorflow.keras.layers import Dense, Dropout, SimpleRNN, LSTM
 
 
 def create_model(model_name=None):
@@ -163,15 +173,13 @@ def create_model(model_name=None):
     """
 
     rnn = Sequential()
-    rnn.add(SimpleRNN(200, return_sequences=True, input_shape=(SEQ_SIZE, N_FEATURES)))
-    rnn.add(Dropout(.8))
-    rnn.add(SimpleRNN(200, return_sequences=True))
-    rnn.add(Dropout(.8))
-    rnn.add(SimpleRNN(100))
-    rnn.add(Dropout(.6))
+    #rnn.add(LSTM(128, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
+    #             recurrent_dropout=0, unroll=False, use_bias=True))
+    rnn.add(SimpleRNN(128, input_shape=(SEQ_SIZE, N_FEATURES)))
+    rnn.add(Dropout(.5))
     rnn.add(Dense(3))
 
-    rnn.compile(loss=tf.keras.losses.MeanSquaredError(), metrics=METRICS.keys(),
+    rnn.compile(loss=tf.keras.losses.MeanSquaredLogarithmicError(), metrics=METRICS.keys(),
                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
     history = rnn.fit(train_generator, validation_data=valid_generator, shuffle=False,
                       epochs=EPOCH, verbose=2, batch_size=BATCH_SIZE)
@@ -196,12 +204,12 @@ def create_model(model_name=None):
 # The following chunks of code represents two ways a RNN model could be generated, either by CREATING or IMPORTING,
 # please comment or uncomment the lines of code depending on the desired outcome.
 
-N_FEATURES = train_scaled.shape[1] + 3
+N_FEATURES = train_scaled.shape[1]
 METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)', 'acc': 'Accuracy'}
-EPOCH = 15
+EPOCH = 60
 
 # CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-name = 'all_target'
+name = 'one_layer_log_E50'
 model = create_model(name)
 
 # IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
