@@ -1,0 +1,28 @@
+MinMax forces and markers per subject
+Fx and Fz filtered using n = 10, b = [1/n]*n, a = 1
+
+200 6, 500 3
+TRAINING = [3.0, 4.0, 6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 20.0, 22.0, 26.0, 27.0, 28.0] 67.86%
+VALIDATION = [19.0, 21.0, 25.0] 10.71%
+TESTING = [2.0, 7.0, 24.0, 23.0, 1.0, 5.0] 21.43%
+
+One-Layer SimpleRNN with 128 neurons
+BATCH_SIZE = 128
+SEQ_SIZE = 5
+EPOCH = 25
+
+Evaluation Metric = Coefficient of determination (R squared)
+
+Up-Sampling ~ 70 s per EPOCH
+		Training		Validation		Testing
+	Fx	Fy	Fz	Fx 	Fy 	Fz	Fx 	Fy	Fz
+Log_Up	0.77	0.73	0.16	0.74	0.72	0.10	0.79	0.71	0.33
+MAE_Up	0.68	0.81	0.19	0.67	0.81	0.01	0.71	0.81	0.28
+MSE_Up	0.80	0.93	0.06	0.78	0.92	-0.17	0.82	0.93	0.16
+
+Down-sampling ~ 35 s per EPOCH
+		Training		Validation		Testing
+	Fx	Fy	Fz	Fx 	Fy 	Fz	Fx 	Fy	Fz
+LOG_Do	0.87	0.88	0.15	0.85	0.87	-0.01	0.89	0.88	0.18
+MAE_Do	0.87	0.95	0.22	0.86	0.94	-0.01	0.88	0.95	0.18
+MSE_Do	0.84	0.95	0.16	0.81	0.94	0.02	0.86	0.95	0.21

@@ -16,7 +16,7 @@ import os
 import re
 import matplotlib.pyplot as plt
 from sys import exit
-from random import randint, seed, sample
+from random import seed, sample
 import tensorflow as tf
 available_devices = tf.config.experimental.list_physical_devices('GPU')
 if len(available_devices) > 0:
@@ -24,9 +24,11 @@ if len(available_devices) > 0:
         tf.config.experimental.set_virtual_device_configuration(gpu, [
             tf.config.experimental.VirtualDeviceConfiguration(memory_limit=5120)])
         # tf.config.experimental.set_memory_growth(gpu, True)
+from sklearn.preprocessing import MinMaxScaler
+from scipy.signal import lfilter
 
 
-def get_df(vel):
+def get_df(vel, sampling):
     """
     The following function joins multiple text files on the PublicRunBiomec folder, these files correspond to people
     having markers attached to their body, and so it was possible to track XYZ coordinates (markers), as well as
@@ -34,6 +36,7 @@ def get_df(vel):
     and so files are labeled as "RBDS001runT25forces.txt", where 25 represent the velocity.
 
     :param string vel: Velocity from which the file will be gathered without using punctuations (25, 35, 45).
+    :param string sampling: Type of sampling method that would be used to join the data, either up or down.
     :return pd.DataFrame: The pandas DataFrame corresponding to the concatenation of all files with that velocity.
     """
 
@@ -52,9 +55,16 @@ def get_df(vel):
     info_columns = list(forces_columns) + ['ID', 'Speed']
     df_forces = pd.DataFrame(columns=info_columns)
     for idx in forces_idx:
-        df_temp = pd.read_csv(path + file_list[idx], sep='\t', index_col='Time').loc[:, ['Fx', 'Fy', 'Fz']]
-        df_temp['ID'], df_temp['Speed'] = ([file_list[idx][4:7]] * df_temp.shape[0],
-                                           [file_list[idx][11:13]] * df_temp.shape[0])
+        df_temp = pd.read_csv(path + file_list[idx], sep='\t').loc[:, ['Fx', 'Fy', 'Fz']]
+        n = 10
+        b, a = [1 / n] * n, 1
+        for force in ['Fx', 'Fz']:
+            df_temp[force] = lfilter(b, a, df_temp[force])
+
+        scaler = MinMaxScaler().fit(df_temp)
+        scalers.append(scaler)
+        df_temp = pd.DataFrame(scaler.transform(df_temp), columns=forces_columns)
+        df_temp['ID'], df_temp['Speed'] = file_list[idx][4:7], file_list[idx][11:13]
         df_forces = pd.concat([df_forces, df_temp], ignore_index=True)
     df_forces = df_forces.reset_index(drop=True)
     df_forces['ID'], df_forces['Speed'] = pd.Categorical(df_forces.ID), pd.Categorical(df_forces.Speed)
@@ -65,29 +75,42 @@ def get_df(vel):
     markers_columns = pd.read_csv(path + file_list[markers_idx[0]], nrows=0, sep='\t').columns
     df_markers = pd.DataFrame(columns=markers_columns)
     for idx in markers_idx:
-        df_temp = pd.read_csv(path + file_list[idx], sep='\t')
+        df_temp = pd.DataFrame(MinMaxScaler().fit_transform(pd.read_csv(path + file_list[idx], sep='\t')
+                                                              .interpolate(method='linear', axis=0)
+                                                              .reset_index(drop=True)),
+                               columns=markers_columns)
         df_markers = pd.concat([df_markers, df_temp], ignore_index=True)
-    df_markers.index = [*range(0, df_forces.shape[0], 2)]
-
+    df_markers = df_markers.dropna(axis=1, how='any')
     # Now, a "fill" DataFrame is being generated for each feature, this dataframe will create NANs for each in between
     # space that is not being covered by the "df_markers", which are (2n + 1) indices. After the merge is completed,
     # the columns from the fill DataFrame are removed and a linear interpolation method is being implemented on the
     # original DataFrame, which has a NAN value between each row. This Up-Sampling method makes sense, as it does not
     # remove valuable information, while it maintains the integrity of the data via a linear regression between rows.
-    df_fill = pd.DataFrame(index=range(1, df_forces.shape[0], 2), columns=df_markers.columns)
-    df_markers = df_markers.merge(df_fill, how='outer', left_index=True,
-                                  right_index=True, suffixes=('_x', '_y')).interpolate(method='linear', axis=0)
-    rem_columns = [False if col[-2:] == '_y' else True for col in df_markers.columns]
-    df_markers = df_markers.loc[:, rem_columns].drop('Time_x', axis=1)
-    df_markers.columns = [col[:-2] for col in df_markers]
+
+    if sampling == 'up':
+        df_markers.index = [*range(0, df_forces.shape[0], 2)]
+        df_fill = pd.DataFrame(index=range(1, df_forces.shape[0], 2), columns=df_markers.columns)
+        df_markers = df_markers.merge(df_fill, how='outer', left_index=True,
+                                      right_index=True, suffixes=('_x', '_y')).interpolate(method='linear', axis=0)
+        rem_columns = [False if col[-2:] == '_y' else True for col in df_markers.columns]
+        df_markers = df_markers.loc[:, rem_columns].drop('Time_x', axis=1)
+        df_markers.columns = [col[:-2] for col in df_markers]
+        df_final = df_markers.merge(df_forces, how='inner', left_index=True, right_index=True)
+    elif sampling == 'down':
+        # df_forces = df_forces.drop(range(0, df_forces.shape[0], 2), axis=0).reset_index(drop=True)
+        df_forces = df_forces.drop(range(0, df_forces.shape[0], 2), axis=0).reset_index(drop=True)
+        df_final = pd.concat([df_markers, df_forces], axis=1)
 
     # Finally, as the granularity from both DataFrames coincide, it is possible to merge them via a inner join.
-    return df_markers.merge(df_forces, how='inner', left_index=True, right_index=True)
+    return df_final
 
 
 # Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
-df_both_25, df_both_35, df_both_45 = get_df('T25'), get_df('T35'), get_df('T45')
-df_both = pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True).astype(np.float32).reset_index(drop=True)
+s_method = 'up'
+scalers = []
+df_both_25, df_both_35, df_both_45 = get_df('T25', s_method), get_df('T35', s_method), get_df('T45', s_method)
+df_both = (pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
+           .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
 print(df_both.head())
 print(df_both.shape)
 
@@ -111,18 +134,18 @@ test = df_both[df_both.ID.isin(test_ids)].drop(['ID', 'Speed'], axis=1)
 # the only known information is the training dataset, and so the scaler would be fitted into this dataset and further
 # used to transform both validation and testing dataset.
 
-from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler
 # from sklearn.preprocessing import StandardScaler
 
-scaler = MinMaxScaler().fit(train)
-columns = train.columns
+# scaler = MinMaxScaler().fit(train)
+# columns = train.columns
 
-train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
-valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
-test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
+# train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
+# valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
+# test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
 
 # Tokens de inicio y final para separar los ultimos valores de los sujetos en training, validation y testing.
-BATCH_SIZE = 500
+BATCH_SIZE = 128
 SEQ_SIZE = 5
 
 from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
@@ -139,8 +162,10 @@ def df_to_generator(df_scaled):
     depending on whether they have source or target variables, and a generator to train the RNN.
     """
 
-    df_output = df_scaled[['Fx', 'Fy', 'Fz']]
-    df_scaled.drop(['Fx', 'Fy', 'Fz'], inplace=True, axis=1)
+    forces = ['Fx', 'Fy', 'Fz']
+    df_output = df_scaled[forces]
+
+    df_scaled.drop(forces, inplace=True, axis=1)
 
     n_features = df_scaled.shape[1]
     df_generator = TimeseriesGenerator(data=np.array(df_scaled), targets=np.array(df_output),
@@ -151,14 +176,20 @@ def df_to_generator(df_scaled):
     return df_scaled, df_output, df_generator
 
 
-train_scaled, train_output, train_generator = df_to_generator(train_scaled)
-valid_scaled, valid_output, valid_generator = df_to_generator(valid_scaled)
-test_scaled, test_output, test_generator = df_to_generator(test_scaled)
+train_scaled, train_output, train_generator = df_to_generator(train)
+valid_scaled, valid_output, valid_generator = df_to_generator(valid)
+test_scaled, test_output, test_generator = df_to_generator(test)
+
+for var in ['df_both_25', 'df_both_35', 'df_both_45', 'df_both',
+            'train_ids', 'valid_ids', 'test_ids', 'train', 'valid', 'test']:
+    exec(f'del {var}')
 
 # Imports tensorflow library, which has deep learning function to build and train a Recurrent Neural Network, further
 # code also sets up a GPU with 2GB as a virtual device for faster training, in case the user has one physical GPU.
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, SimpleRNN, LSTM
+from tensorflow.keras.layers import Dense, SimpleRNN, LSTM
+
+FOLDER = 'subjectMinMax_onelayer_SimpleRNN'
 
 
 def create_model(model_name=None):
@@ -173,18 +204,27 @@ def create_model(model_name=None):
     """
 
     rnn = Sequential()
-    #rnn.add(LSTM(128, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
-    #             recurrent_dropout=0, unroll=False, use_bias=True))
+    # rnn.add(LSTM(128, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
+    #              recurrent_dropout=0, unroll=False, use_bias=True))
     rnn.add(SimpleRNN(128, input_shape=(SEQ_SIZE, N_FEATURES)))
-    rnn.add(Dropout(.5))
     rnn.add(Dense(3))
 
-    rnn.compile(loss=tf.keras.losses.MeanSquaredLogarithmicError(), metrics=METRICS.keys(),
+    # Metrics:
+    # MeanSquaredError
+    # RootMeanSquaredError
+    # MeanAbsoluteError
+    # MeanAbsolutePercentageError
+    # MeanSquaredLogarithmicError
+    # CosineSimilarity
+    # LogCoshError
+
+    rnn.compile(loss=tf.keras.losses.MeanSquaredError(), metrics=METRICS.keys(),
                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.001))
     history = rnn.fit(train_generator, validation_data=valid_generator, shuffle=False,
                       epochs=EPOCH, verbose=2, batch_size=BATCH_SIZE)
+    # callbacks=[tf.keras.callbacks.EarlyStopping(monitor="loss", patience=5)
     if model_name is not None:
-        rnn.save('saved_models/{}_E{}_S{}_B{}.h5'.format(model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
+        rnn.save('saved_models/{}/{}_E{}_S{}_B{}.h5'.format(FOLDER, model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
 
     hist = pd.DataFrame(history.history)
     hist['epoch'] = history.epoch
@@ -196,7 +236,7 @@ def create_model(model_name=None):
         plt.plot(hist['epoch'], hist[metric], label='Training')
         plt.plot(hist['epoch'], hist['val_' + metric], label='Validation')
         plt.legend()
-        metrics_fig.savefig('figures/{}_{}.png'.format(model_name, metric))
+        metrics_fig.savefig('figures/{}/{}_{}.png'.format(FOLDER, model_name, metric))
 
     return rnn
 
@@ -205,11 +245,11 @@ def create_model(model_name=None):
 # please comment or uncomment the lines of code depending on the desired outcome.
 
 N_FEATURES = train_scaled.shape[1]
-METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)', 'acc': 'Accuracy'}
-EPOCH = 60
+METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)'}
+EPOCH = 25
 
 # CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-name = 'one_layer_log_E50'
+name = 'mse_up'
 model = create_model(name)
 
 # IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
@@ -239,16 +279,16 @@ def model_evaluation(predictions, true_values):
     #                                      'F_z': predictions[:, 2]}).fillna(method='ffill', axis=0))
 
     from sklearn.metrics import r2_score
-    scores_r2 = [np.abs(r2_score(true_values[SEQ_SIZE:, num], predictions[:, num])) for num in range(3)]
+    scores_r2 = [r2_score(true_values[SEQ_SIZE:, num], predictions[:, num]) for num in range(3)]
 
     from scipy.stats.stats import pearsonr
     scores_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[0]) for num in range(3)]
-    p_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1]) for num in range(3)]
+    p_pearson = [pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1] for num in range(3)]
 
     print('Pearson correlation:', scores_pearson)
     print('Pearson correlation (mean):', np.round(np.mean(scores_pearson), 4))
     print('P-value:', p_pearson)
-    print('P-value (mean):', np.round(np.mean(p_pearson), 4))
+    print('P-value (mean):', np.round(np.mean(p_pearson), 8))
     print('Coefficient of determination:', scores_r2)
     print('Coefficient of determination (mean):', np.round(np.mean(scores_r2), 4))
     return scores_r2, float(np.round(np.mean(scores_r2), 4))
@@ -284,8 +324,8 @@ plt.xticks([r + BAR_WIDTH*1.5 for r in y_pos], bars)
 ax = plt.gca()
 ax.set_ylim([0, 1])
 plt.legend()
-r2_fig.savefig('figures/{}_r2_barplot.png'.format(name))
-
+r2_fig.savefig('figures/{}/{}_r2_barplot.png'.format(FOLDER, name))
+exit()
 # Based on the procedure used on model_evaluation, the trained RNN would be used to predict the forces using the
 # markers dataset, and so manually manipulate both the true values as well as the predicted values.
 
@@ -341,7 +381,7 @@ def plot_results(predictions, true_values):
         plt.xlabel('Index')
         plt.ylabel('Force (N)')
         plt.legend()
-        forces_fig.savefig('figures/{}_predict_{}.png'.format(name, force))
+        forces_fig.savefig('figures/{}/{}_predict_{}.png'.format(FOLDER, name, force))
 
 
 plot_results(y_prediction_esc[:100, :], y_true_esc[:100, :])
