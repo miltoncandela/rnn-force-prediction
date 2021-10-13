@@ -5,6 +5,16 @@ from openpose import pyopenpose as op
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+params = dict()
+params["model_folder"] = "D:/openpose/models"  # using git tree
+params["face"] = True
+params["hand"] = True
+params["disable_blending"] = True  # show only keypoints
+
+opWrapper = op.WrapperPython()
+opWrapper.configure(params)
+opWrapper.start()
+
 # Configure depth and color streams
 pipeline = rs.pipeline()
 config = rs.config()
