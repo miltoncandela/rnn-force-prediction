@@ -27,6 +27,11 @@ if len(available_devices) > 0:
 from sklearn.preprocessing import MinMaxScaler
 from scipy.signal import lfilter
 
+# Evaluation
+
+from sklearn.metrics import r2_score
+from scipy.stats.stats import pearsonr
+
 
 def get_df(vel, sampling):
     """
@@ -62,7 +67,7 @@ def get_df(vel, sampling):
             df_temp[force] = lfilter(b, a, df_temp[force])
 
         scaler = MinMaxScaler().fit(df_temp)
-        scalers.append(scaler)
+        # scalers.append(scaler)
         df_temp = pd.DataFrame(scaler.transform(df_temp), columns=forces_columns)
         df_temp['ID'], df_temp['Speed'] = file_list[idx][4:7], file_list[idx][11:13]
         df_forces = pd.concat([df_forces, df_temp], ignore_index=True)
@@ -105,51 +110,41 @@ def get_df(vel, sampling):
     return df_final
 
 
-# Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
-s_method = 'down'
-scalers = []
-df_both_25, df_both_35, df_both_45 = get_df('T25', s_method), get_df('T35', s_method), get_df('T45', s_method)
+def pre_process(s_method, seed_train=200, seed_test=500):
+    # Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
+    df_both_25, df_both_35, df_both_45 = get_df('T25', s_method), get_df('T35', s_method), get_df('T45', s_method)
 
-# df_both_25 = get_df('T25', s_method)
+    # df_both_25 = get_df('T25', s_method)
 
-df_both = (pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
-           .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
-#df_both = (pd.concat([df_both_25], ignore_index=True)
-#           .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
-print(df_both.head())
-print(df_both.shape)
+    df_both = (pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
+               .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
+    # df_both = (pd.concat([df_both_25], ignore_index=True)
+    #           .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
+    print(df_both.head())
+    print(df_both.shape)
 
-train_ids = list(set(df_both.ID))
-seed(200)
-test_ids = sample(train_ids, 6)
-seed(500)
-valid_ids = sample(list(set(train_ids) - set(test_ids)), 3)
-print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
-print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
-      round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
+    train_ids = list(set(df_both.ID))
+    seed(seed_train)
+    test_ids = sample(train_ids, 6)
+    seed(seed_test)
+    valid_ids = sample(list(set(train_ids) - set(test_ids)), 3)
+    print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
+    print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
+          round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
 
-# The whole dataset is divided to a training, validation and testing set. P_TEST defines the ratio from the dataset
-# into the train_set and test dataset, while P_VALID defines the ratio from the train_set to training and validation.
+    # The whole dataset is divided to a training, validation and testing set. P_TEST defines the ratio from the dataset
+    # into the train_set and test dataset, while P_VALID defines the ratio from the train_set to training and validation.
 
-train = df_both[~df_both.ID.isin(valid_ids + test_ids)].drop(['ID', 'Speed'], axis=1)
-valid = df_both[df_both.ID.isin(valid_ids)].drop(['ID', 'Speed'], axis=1)
-test = df_both[df_both.ID.isin(test_ids)].drop(['ID', 'Speed'], axis=1)
+    train = df_both[~df_both.ID.isin(valid_ids + test_ids)].drop(['ID', 'Speed'], axis=1)
+    valid = df_both[df_both.ID.isin(valid_ids)].drop(['ID', 'Speed'], axis=1)
+    test = df_both[df_both.ID.isin(test_ids)].drop(['ID', 'Speed'], axis=1)
 
-# Due to the use of Deep Learning, data must be normalized, and so MinMaxScaler would be used to fulfill this task,
-# the only known information is the training dataset, and so the scaler would be fitted into this dataset and further
-# used to transform both validation and testing dataset.
+    return train, valid, test
 
-# from sklearn.preprocessing import MinMaxScaler
-# from sklearn.preprocessing import StandardScaler
 
-# scaler = MinMaxScaler().fit(train)
-# columns = train.columns
+sampling_method = 'up'
+train, valid, test = pre_process(sampling_method)
 
-# train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
-# valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
-# test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
-
-# Tokens de inicio y final para separar los ultimos valores de los sujetos en training, validation y testing.
 BATCH_SIZE = 128
 SEQ_SIZE = 5
 
@@ -185,19 +180,13 @@ train_scaled, train_output, train_generator = df_to_generator(train)
 valid_scaled, valid_output, valid_generator = df_to_generator(valid)
 test_scaled, test_output, test_generator = df_to_generator(test)
 
-for var in ['df_both_25', 'df_both_35', 'df_both_45', 'df_both',
-            'train_ids', 'valid_ids', 'test_ids', 'train', 'valid', 'test']:
-    exec(f'del {var}')
-
 # Imports tensorflow library, which has deep learning function to build and train a Recurrent Neural Network, further
 # code also sets up a GPU with 2GB as a virtual device for faster training, in case the user has one physical GPU.
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, SimpleRNN, LSTM, GRU
 
-FOLDER = 'subjectMinMax_onelayer_SimpleRNN'
 
-
-def create_model(model_name=None):
+def create_model(model_type, loss_func, model_name=None):
     """
     Using tensorflow and keras, this function builds a sequential model with a RNN architecture, based on layers such
     as SimpleRNN, Dropout and a final Dense layer for the output. When it finishes training, the model is saved on the
@@ -209,9 +198,13 @@ def create_model(model_name=None):
     """
 
     rnn = Sequential()
-    # rnn.add(LSTM(8, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
-    #              recurrent_dropout=0, unroll=False, use_bias=True))
-    rnn.add(GRU(8, input_shape=(SEQ_SIZE, N_FEATURES)))
+
+    layers_dict = {'LSTM': LSTM(8, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
+                     recurrent_dropout=0, unroll=False, use_bias=True),
+                   'GRU': GRU(8, input_shape=(SEQ_SIZE, N_FEATURES)),
+                   'Simple': SimpleRNN(8, input_shape=(SEQ_SIZE, N_FEATURES))}
+
+    rnn.add(layers_dict[model_type])
     rnn.add(Dense(3))
 
     # Metrics:
@@ -224,26 +217,35 @@ def create_model(model_name=None):
     # LogCoshError
 
     # tf.keras.losses.MeanSquaredError()
-    rnn.compile(loss=tf.keras.losses.MeanSquaredError(), metrics=METRICS.keys(),
+
+    loss_dict = {'MSE': tf.keras.losses.MeanSquaredError(),
+                 'MAE': tf.keras.losses.MeanAbsoluteError(),
+                 'MSLE': tf.keras.losses.MeanSquaredLogarithmicError()}
+    #if loss_func == 'MSE':
+
+    rnn.compile(loss=loss_dict[loss_func], metrics=METRICS.keys(),
                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.000005))
+    print(rnn.summary())
     history = rnn.fit(train_generator, validation_data=valid_generator, shuffle=False,
                       epochs=EPOCH, verbose=2, batch_size=BATCH_SIZE)
     # callbacks=[tf.keras.callbacks.EarlyStopping(monitor="loss", patience=5)
-    if model_name is not None:
-        rnn.save('saved_models/{}/{}_E{}_S{}_B{}.h5'.format(FOLDER, model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
+
+    # if model_name is not None:
+    #     rnn.save('saved_models/{}/{}_E{}_S{}_B{}.h5'.format(FOLDER, model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
 
     hist = pd.DataFrame(history.history)
     hist['epoch'] = history.epoch
 
-    for metric in METRICS.keys():
+    for metric in list(METRICS.keys()) + ['loss']:
         metrics_fig = plt.figure()
         plt.xlabel('Epoch')
-        plt.ylabel(METRICS[metric])
+        y_label = METRICS[metric] if metric != 'loss' else METRICS[loss_function.lower()]
+        plt.ylabel(y_label)
         plt.title('Training vs Validation {}'.format(metric.upper()))
         plt.plot(hist['epoch'], hist[metric], label='Training')
         plt.plot(hist['epoch'], hist['val_' + metric], label='Validation')
         plt.legend()
-        metrics_fig.savefig('figures/{}/{}_{}.png'.format(FOLDER, model_name, metric))
+        metrics_fig.savefig('{}/figures/{}_E-{}.png'.format(results_folder_name, encoded_name, metric.lower()))
 
     return rnn
 
@@ -256,22 +258,8 @@ METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)'
            'msle': 'Mean Squared Logarithmic Error (MSLE)'}
 EPOCH = 25
 
-# CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-name = 'mse_down'
-model = create_model(name)
 
-# IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
-# from tensorflow.keras.models import load_model
-# name = 'forward_using_target.h5'
-# model = load_model('saved_models/' + name)
-
-try:
-    model.summary()
-except NameError:
-    exit('A model instance must be generated to continue, either by CREATING or IMPORTING')
-
-
-def model_evaluation(predictions, true_values):
+def evaluate_predictions(predictions, true_values, metric='r2'):
     """
     Manual evaluation of the model's predictions using R squared, pearson correlation and p-value. This is done by each
     dimension (X, Y, Z), and the function is called by each dataset (training, validation, testing).
@@ -286,163 +274,47 @@ def model_evaluation(predictions, true_values):
     # predictions = np.array(pd.DataFrame({'F_x': predictions[:, 0], 'F_y': predictions[:, 1],
     #                                      'F_z': predictions[:, 2]}).fillna(method='ffill', axis=0))
 
-    from sklearn.metrics import r2_score
-    scores_r2 = [r2_score(true_values[SEQ_SIZE:, num], predictions[:, num]) for num in range(3)]
+    if metric == 'R2':
+        scores = [r2_score(true_values[SEQ_SIZE:, num], predictions[:, num]) for num in range(3)]
+    elif metric == 'Pearson':
+        scores = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[0]) for num in range(3)]
+    elif metric == 'PVal':
+        scores = [pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1] for num in range(3)]
 
-    from scipy.stats.stats import pearsonr
-    scores_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[0]) for num in range(3)]
-    p_pearson = [pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1] for num in range(3)]
-
-    print('Pearson correlation:', scores_pearson)
-    print('Pearson correlation (mean):', np.round(np.mean(scores_pearson), 4))
-    print('P-value:', p_pearson)
-    print('P-value (mean):', np.round(np.mean(p_pearson), 8))
-    print('Coefficient of determination:', scores_r2)
-    print('Coefficient of determination (mean):', np.round(np.mean(scores_r2), 4))
-    return scores_r2, float(np.round(np.mean(scores_r2), 4))
+    return scores, float(np.round(np.mean(scores), 4))
 
 
-print('*** Training evaluation ***')
-train_scores, train_det = model_evaluation(model.predict(train_generator), np.array(train_output))
-print('*** Validation evaluation ***')
-valid_scores, valid_det = model_evaluation(model.predict(valid_generator), np.array(valid_output))
-print('*** Testing evaluation ***')
-test_scores, test_det = model_evaluation(model.predict(test_generator), np.array(test_output))
-det_scores = [train_det, valid_det, test_det]
-x_scores = [train_scores[0], valid_scores[0], test_scores[0]]
-y_scores = [train_scores[1], valid_scores[1], test_scores[1]]
-z_scores = [train_scores[2], valid_scores[2], test_scores[2]]
+def evaluate_model(model):
 
-# The previously obtained scores, although they are printed on the console using the declared function model_evaluation,
-# would be plotted using a bar plot. Each bar represents a force dimension and the set of bars represent each type of
-# dataset available, and so a for loop that changes the bars position have to be employed to visually see the metrics.
+    df_results = pd.DataFrame()
 
-bars = ('Training', 'Validation', 'Testing')
-BAR_WIDTH = 0.15
-y_pos = np.arange(len(bars))
-names = ['F_x', 'F_y', 'F_z', 'Mean']
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    for metric in ['R2', 'Pearson', 'PVal']:
+        train_scores, train_det = evaluate_predictions(model.predict(train_generator), np.array(train_output), metric)
+        valid_scores, valid_det = evaluate_predictions(model.predict(valid_generator), np.array(valid_output), metric)
+        test_scores, test_det = evaluate_predictions(model.predict(test_generator), np.array(test_output), metric)
 
-r2_fig = plt.figure()
-for i, score in enumerate([x_scores, y_scores, z_scores, det_scores]):
-    plt.bar([x + BAR_WIDTH*i for x in y_pos], score, width=BAR_WIDTH, label=names[i], color=colors[i])
-plt.title('Coefficient of determination (R Squared) across datasets ({} Epochs)'.format(EPOCH))
-plt.ylabel('Coefficient of determination ($R^{2}$)')
-plt.xticks([r + BAR_WIDTH*1.5 for r in y_pos], bars)
-ax = plt.gca()
-ax.set_ylim([0, 1])
-plt.legend()
-r2_fig.savefig('figures/{}/{}_r2_barplot.png'.format(FOLDER, name))
-exit()
-# Based on the procedure used on model_evaluation, the trained RNN would be used to predict the forces using the
-# markers dataset, and so manually manipulate both the true values as well as the predicted values.
+        det_scores = [train_det, valid_det, test_det]
+        x_scores = [train_scores[0], valid_scores[0], test_scores[0]]
+        y_scores = [train_scores[1], valid_scores[1], test_scores[1]]
+        z_scores = [train_scores[2], valid_scores[2], test_scores[2]]
 
-y_prediction = model.predict(test_generator)
-# y_prediction = np.concatenate((y_prediction, np.full((SEQ_SIZE - 1, 3), np.nan)))
-# y_prediction = np.array(pd.DataFrame({'F_x': y_prediction[:, 0], 'F_y': y_prediction[:, 1],
-#                                       'F_z': y_prediction[:, 2]}).fillna(method='ffill', axis=0))
-y_true = np.array(test_output)[SEQ_SIZE:, :]
+        df_temp = pd.DataFrame(dict(zip(['{}_X'.format(metric), '{}_Y'.format(metric), '{}_Z'.format(metric),
+                                         '{}_Avg'.format(metric)], [x_scores, y_scores, z_scores, det_scores])))
+        df_results = pd.concat([df_results, df_temp], axis=1)
+    df_results.index = ['Training', 'Validation', 'Testing']
+    df_results.to_csv('{}/csv/{}.csv'.format(results_folder_name, encoded_name))
 
 
-def inv_scaler(y, current_scaler):
-    """
-    This function scales the data back to their original range and domain, although each sklearn scaler object has
-    a .inverse_transform method, this method takes expects a DataFrame or Numpy Array with the same number of columns
-    from which it was declared. However, it is not of our interests to scale back the source variables such as the
-    markers, only real forces, and so we create dummy variables and extract only the desired target variables.
+results_folder_name = 'E-{}_U-8_B-{}_S-{}'.format(EPOCH, BATCH_SIZE, SEQ_SIZE)
 
-    :param np.array y: Scaled array using a sklearn scaler, such as MinMaxScaler().
-    :param object current_scaler: sklearn.preprocessing object used to scale all the datasets.
-    :return np.array: Inverse escalated array, which has original values (N).
-    """
-    df = pd.DataFrame(dict(zip(test_scaled.columns, np.ones(y.shape[0]))), index=range(y.shape[0]))
-    df['Fx'], df['Fy'], df['Fz'] = y[:, 0], y[:, 1], y[:, 2]
-    y_esc = current_scaler.inverse_transform(df)[:, -3:]
-    return y_esc
+if not os.path.exists(results_folder_name):
+    os.mkdir(results_folder_name)
+    os.mkdir(results_folder_name + '/figures')
+    os.mkdir(results_folder_name + '/csv')
 
-
-y_prediction_esc, y_true_esc = inv_scaler(y_prediction, scaler), inv_scaler(y_true, scaler)
-
-# Now automatic evaluation of the model takes place, the set of metrics used correspond to the ones that were tracked
-# of the training and validation dataset, collected within the training of the RNN.
-
-test_metrics = model.evaluate(test_generator, verbose=0)
-print('*** Test metrics ***')
-for i, test_metric in enumerate(['loss'] + list(METRICS.keys())):
-    print(test_metric, test_metrics[i])
-
-
-def plot_results(predictions, true_values):
-    """
-    Uses matplotlib to visually see whether a correlation is being observed, although a subset of the first 100 rows
-    is used. As there are thousands of samples and it is nearly impossible to correctly visualize them on one plot.
-
-    :param np.array predictions: Non-scaled predictions from the RNN.
-    :param np.array true_values: Non-scaled real data from testing dataset.
-    """
-
-    for idx, force in enumerate(['Fx', 'Fy', 'Fz']):
-        forces_fig = plt.figure()
-        plt.plot(predictions[:100, idx], 'y', label='Predicted')
-        plt.plot(true_values[:100, idx], 'r', label='True')
-        plt.title('True and predicted force of {}'.format(force))
-        plt.xlabel('Index')
-        plt.ylabel('Force (N)')
-        plt.legend()
-        forces_fig.savefig('figures/{}/{}_predict_{}.png'.format(FOLDER, name, force))
-
-
-plot_results(y_prediction_esc[:100, :], y_true_esc[:100, :])
-
-
-'''
-Code in development to real time plotting
-
-from mpl_toolkits.mplot3d import Axes3D
-
-fig = plt.figure(figsize=(4, 4))
-ax = fig.add_subplot(111, projection='3d')
-
-ph, = ax.plot(1, 1, 1, marker='o', color='red')
-ax.set_xlabel('Coordenadas en X (Pixeles)')
-ax.set_ylabel('Coordenadas en Y (Pixeles)')
-ax.set_zlabel('Coordenadas en Z (Pixeles)')
-#plt.show()
-
-
-for point in test_scaled.index:
-    for i in range(0, len(test_scaled.columns)//3):
-        print(test_scaled.iloc[point,i:(i + 3)])
-        X, Y, Z = test.iloc[point,i:(i + 3)]
-        print(X, Y, Z)
-
-        #ph.set_xdata(X)
-        #ph.set_ydata(Y)
-        #ph.set_zdata(Z)
-
-        plt.pause(0.1)
-        ph._offsets3d = (X, Y, Z)
-        #plt.show()
-        i = i + 3
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.animation
-x = np.random.normal(size=(80,3))
-df = pd.DataFrame(x, columns=["x","y","z"])
-fig = plt.figure()
-ax = fig.add_subplot(111,projection='3d')
-sc = ax.scatter([],[],[], c='darkblue', alpha=0.5)
-def update(i):
-    sc._offsets3d = (df.x.values[:i], df.y.values[:i], df.z.values[:i])
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_zlabel('Z')
-ax.set_xlim(-3,3)
-ax.set_ylim(-3,3)
-ax.set_zlim(-3,3)
-ani = matplotlib.animation.FuncAnimation(fig, update, frames=len(df), interval=70)
-plt.tight_layout()
-plt.show()
-'''
+for loss_function in ['MAE', 'MSLE']:
+    for model_type in ['LSTM', 'GRU', 'Simple']:
+        print('Processing L: {}, M: {}'.format(loss_function, model_type))
+        encoded_name = 'S-{}_L-{}_M-{}'.format(sampling_method, loss_function.lower(), model_type.lower())
+        evaluate_model(create_model(model_type, loss_function))
+        print('Finish L: {}, M: {}'.format(loss_function, model_type))
