@@ -17,6 +17,9 @@ from scipy.fft import rfft, rfftfreq
 import matplotlib.animation as animation
 
 # Imports for Hexiwear
+# from pexpect.popen_spawn import PopenSpawn
+import pexpect
+import sys
 
 # Imports for Intel Real Sense
 
@@ -40,7 +43,7 @@ def timer(second):
         with second.get_lock():
             # We now calculate the time elapsed between start and now (should be approx. 1 second).
             second.value = int(time.time() - time_start)
-            if second.value == 60:
+            if second.value == 15:
                 return
             print(second.value, end="\r")
         # Once we stored all the info and make the calculations, we sleep the script for
@@ -182,7 +185,7 @@ def empatica(second, folder):
             try:
                 with second.get_lock():
                     # When the seconds reach 312, we exit the functions.
-                    if (second.value == 332):
+                    if (second.value == 15):
                         plt.close()
                         return
                 response = s.recv(bufferSize).decode("utf-8")
@@ -494,8 +497,121 @@ def empatica(second, folder):
 
 
 def hexiwear(second, folder):
-    print(second.value, folder)
-    pass
+    # Using Hexiwear with Python
+    # Script to get the device data and append it to a file
+    # Usage
+    # python GetData.py <device>
+    # e.g. python GetData.py "00:29:40:08:00:01"
+
+    # ---------------------------------------------------------------------
+    # function to transform hex string like "0a cd" into signed integer
+    # ---------------------------------------------------------------------
+    def hexStrToInt(hexstr):
+        val = int(hexstr[0:2], 16) + (int(hexstr[3:5], 16) << 8)
+        if ((val & 0x8000) == 0x8000):  # treat signed 16bits
+            val = -((val ^ 0xffff) + 1)
+        return val
+
+    # ---------------------------------------------------------------------
+
+    parsed_to_json = []
+
+    DEVICE = "00:22:50:04:00:0D"  # hexiwear ALAS-Tecnologico de Monterrey
+
+    if len(sys.argv) == 2:
+        DEVICE = str(sys.argv[1])
+
+    # Run gatttool interactively.
+    child = pexpect.spawn("gatttool -I")
+
+    # Connect to the device.
+    print("Connecting to:"),
+    print(DEVICE)
+
+    NOF_REMAINING_RETRY = 3
+
+    while True:
+        try:
+            with second.get_lock():
+                # We now calculate the time elapsed between start and now (should be approx. 1 second).
+                if second.value == 15:
+                    return
+            child.sendline("connect {0}".format(DEVICE))
+            child.expect("Connection successful", timeout=5)
+        except pexpect.TIMEOUT:
+            NOF_REMAINING_RETRY = NOF_REMAINING_RETRY - 1
+            if (NOF_REMAINING_RETRY > 0):
+                print("timeout, retry...")
+                continue
+            else:
+                print("timeout, giving up.")
+                break
+        else:
+            print("Connected!")
+            break
+
+    if NOF_REMAINING_RETRY > 0:
+        try:
+            while True:
+                # The .get_lock() function is necessary since it ensures they are synchronized between both functions,
+                # since they both access to the same variables.
+                with second.get_lock():
+                    # We now calculate the time elapsed between start and now (should be approx. 1 second).
+                    if second.value == 15:
+                        return
+                time.sleep(1)
+                unixTime = int(time.time())
+                unixTime += 60 * 60  # GMT+1
+                unixTime += 60 * 60  # added daylight saving time of one hour
+
+                # [{‘tiempo’: 0, ‘speed: 12’}, {‘tiempo’: 1, ’speed’: 67}]
+                # parsed_to_json = []
+
+                # open file
+                # file = open("data.csv", "a")
+                # if (os.path.getsize("data.csv")==0):
+                #  file.write("Device\ttime\tAppMode\tBattery\tAmbient\tTemperature\tHumidity\tPressure\tHeartRate\tSteps\tCalorie\tAccX\tAccY\tAccZ\tGyroX\tGyroY\tGyroZ\tMagX\tMagY\tMagZ\n")
+                file = open("{}/Raw/dataHexi.csv".format(folder), "a")
+                if (os.path.getsize("{}/Raw/dataHexi.csv".format(folder), ) == 0):
+                    file.write("Time,Temperature,HeartRate\n")
+
+                # file.write(DEVICE)
+                # file.write('Time:')
+                file.write(str(unixTime))  # Unix timestamp in seconds
+                file.write(",")
+
+                child.sendline("char-read-hnd 0x43")
+                child.expect("Characteristic value/descriptor: ", timeout=5)
+                child.expect("\r\n", timeout=5)
+                print("Temperature:  "),
+                print(child.before),
+                print(float(hexStrToInt(child.before[0:5])) / 100)
+                # file.write('Temperature:')
+                file.write(str(float(hexStrToInt(child.before[0:5])) / 100))
+                file.write(",")
+
+                child.sendline("char-read-hnd 0x52")
+                child.expect("Characteristic value/descriptor: ", timeout=5)
+                child.expect("\r\n", timeout=5)
+                print('HeartRate:'),
+                print(child.before),
+                print(str(int(child.before[0:2], 16)))
+                # file.write('HeartRate:')
+                file.write(str(int(child.before[0:2], 16)))
+                file.write(",")
+
+                file.write("\n")
+                file.close()
+
+                print("Datos de hexiwear registrados!")
+                # parsed_to_json.append({ 'Time': str(unixTime) , 'Temp': str(float(hexStrToInt(child.before[0:5]))/100), 'HeartRate':str(int(child.before[0:2],16))})
+
+                # sys.exit(0)
+            # else:
+            # print("FAILED!")
+            # sys.exit(-1)
+        except KeyboardInterrupt:  # Terminamos programa+Generamos JSON
+            sys.exit(0)
 
 
 # # CODE FOR RealSense # #
@@ -518,17 +634,17 @@ if __name__ == '__main__':
         os.mkdir('{}/{}'.format(folder_name, sub_folder))
 
     # # Start processes # #
-    process1 = Process(target=timer, args=seconds)
-    p = Process(target=empatica, args=(seconds, folder_name))  # Descomentar para Empatica
-    q = Process(target=hexiwear, args=(seconds, folder_name))
+    process1 = Process(target=timer, args=[seconds])
+    p = Process(target=empatica, args=[seconds, folder_name])  # Descomentar para Empatica
+    q = Process(target=hexiwear, args=[seconds, folder_name])
     process1.start()
-    # p.start()  # Descomentar para Empatica
-    q.start()
+    p.start()  # Descomentar para Empatica
+    # q.start() # Descomentar para Hexiwear
     process1.join()
-    # p.join()  # Descomentar para Empatica
-    q.join()
+    p.join()  # Descomentar para Empatica
+    # q.join() # Descomentar para Hexiwear
 
-    print(Fore.RED + 'Test finished successfully' + Style.RESET_ALL)
+    print(Fore.GREEN + 'Test finished successfully' + Style.RESET_ALL)
 
 # # # # # # # Sources # # # # # # # #
 # To understand Value data type and lock method read the following link:

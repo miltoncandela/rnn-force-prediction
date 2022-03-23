@@ -22,7 +22,7 @@ available_devices = tf.config.experimental.list_physical_devices('GPU')
 if len(available_devices) > 0:
     for gpu in tf.config.experimental.list_physical_devices('GPU'):
         tf.config.experimental.set_virtual_device_configuration(gpu, [
-            tf.config.experimental.VirtualDeviceConfiguration(memory_limit=5120)])
+            tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)])
         # tf.config.experimental.set_memory_growth(gpu, True)
 from sklearn.preprocessing import MinMaxScaler
 from scipy.signal import lfilter
@@ -106,7 +106,7 @@ def get_df(vel, sampling):
 
 
 # Using the previous function, it concatenates all the velocities' DataFrames in a single DataFrame.
-s_method = 'down'
+s_method = 'up'
 scalers = []
 df_both_25, df_both_35, df_both_45 = get_df('T25', s_method), get_df('T35', s_method), get_df('T45', s_method)
 
@@ -194,8 +194,8 @@ for var in ['df_both_25', 'df_both_35', 'df_both_45', 'df_both',
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, SimpleRNN, LSTM, GRU
 
-FOLDER = 'subjectMinMax_onelayer_SimpleRNN'
-
+FOLDER = 'paper'
+print(FOLDER)
 
 def create_model(model_name=None):
     """
@@ -211,7 +211,7 @@ def create_model(model_name=None):
     rnn = Sequential()
     # rnn.add(LSTM(8, input_shape=(SEQ_SIZE, N_FEATURES), activation='tanh',recurrent_activation='sigmoid',
     #              recurrent_dropout=0, unroll=False, use_bias=True))
-    rnn.add(GRU(8, input_shape=(SEQ_SIZE, N_FEATURES)))
+    rnn.add(LSTM(8, input_shape=(SEQ_SIZE, N_FEATURES)))
     rnn.add(Dense(3))
 
     # Metrics:
@@ -233,6 +233,7 @@ def create_model(model_name=None):
         rnn.save('saved_models/{}/{}_E{}_S{}_B{}.h5'.format(FOLDER, model_name, EPOCH, SEQ_SIZE, BATCH_SIZE))
 
     hist = pd.DataFrame(history.history)
+    hist.to_csv('figures/{}/history.csv'.format(FOLDER))
     hist['epoch'] = history.epoch
 
     for metric in METRICS.keys():
@@ -333,7 +334,7 @@ ax = plt.gca()
 ax.set_ylim([0, 1])
 plt.legend()
 r2_fig.savefig('figures/{}/{}_r2_barplot.png'.format(FOLDER, name))
-exit()
+
 # Based on the procedure used on model_evaluation, the trained RNN would be used to predict the forces using the
 # markers dataset, and so manually manipulate both the true values as well as the predicted values.
 
@@ -361,7 +362,10 @@ def inv_scaler(y, current_scaler):
     return y_esc
 
 
-y_prediction_esc, y_true_esc = inv_scaler(y_prediction, scaler), inv_scaler(y_true, scaler)
+#y_prediction_esc, y_true_esc = inv_scaler(y_prediction, scaler), inv_scaler(y_true, scaler)
+y_prediction_esc, y_true_esc = y_prediction, y_true
+pd.DataFrame(y_prediction).to_csv('figures/{}/y_pred.csv'.format(FOLDER))
+pd.DataFrame(y_true).to_csv('figures/{}/y_true.csv'.format(FOLDER))
 
 # Now automatic evaluation of the model takes place, the set of metrics used correspond to the ones that were tracked
 # of the training and validation dataset, collected within the training of the RNN.
