@@ -9,6 +9,8 @@
 # WARNING: Numpy version == 1.19.5, otherwise data could not be transformed into a generator and further into RNN:
 # NotImplementedError: Cannot convert a symbolic Tensor (simple_rnn/strided_slice:0) to a numpy array.
 # This error may indicate that you're trying to pass a Tensor to a NumPy call, which is not supported
+# Tensorflow version == 2.5.0, otherwise
+# "TypeError: Unable to convert function return value to a Python type! The signature was () -> handle
 
 import pandas as pd
 from math import floor
@@ -24,26 +26,38 @@ if len(available_devices) > 0:
         tf.config.experimental.set_virtual_device_configuration(gpu, [
             tf.config.experimental.VirtualDeviceConfiguration(memory_limit=5120)])
         # tf.config.experimental.set_memory_growth(gpu, True)
+
+#from sklearn.preprocessing import MinMaxScaler
+#from scipy.signal import lfilter
+
 from sklearn.preprocessing import MinMaxScaler
-from scipy.signal import lfilter
+# from sklearn.preprocessing import StandardScaler
+
+# scaler = MinMaxScaler().fit(train)
+# columns = train.columns
 
 
 def get_df():
-    df_final = pd.DataFrame()
+
     path = './Final_DataFrames/'
     file_list = os.listdir(path)
+    l_columns = list(set(pd.read_csv(path + file_list[0], nrows=0).columns) - {'Subject', 'Movimiento', 'Repetition', 'Datetime'})
+    df_final = pd.DataFrame(columns=l_columns + ['ID'])
+
     for i in range(len(file_list)):
         df = pd.read_csv(path+file_list[i])
-        df_final = pd.concat([df_final, df])
-        
-    df_final['ID'] = df_final.Subject.astype(str) + df_final.Movimiento.astype(str) + df_final.Repetition.astype(str)
-    df_final = df_final.drop(['Subject', 'Movimiento','Repetition','Datetime'], axis=1)
+        curr_id = df.Subject.astype(str) + '_' + df.Movimiento.astype(str) + '_' + df.Repetition.astype(str)
+        df = pd.DataFrame(MinMaxScaler().fit_transform(df.drop(['Subject', 'Movimiento', 'Repetition', 'Datetime'], axis=1)), columns=l_columns)
+        df['ID'] = curr_id
+        df_final = pd.concat([df_final, df], axis=0, ignore_index=True)
+
+
+    #df_final['ID'] = df_final.Subject.astype(str) + '_' + df_final.Movimiento.astype(str) + '_' + df_final.Repetition.astype(str)
+    #df_final = df_final.drop(['Subject', 'Movimiento','Repetition','Datetime'], axis=1)
     return df_final
 
-scalers = []
-df_both = get_df()
 
-print(df_both.shape)
+df_both = get_df()
 train_ids = list(set(df_both.ID))
 seed(200)
 test_ids = sample(train_ids, floor(len(train_ids)*0.2))
@@ -64,15 +78,9 @@ test = df_both[df_both.ID.isin(test_ids)].drop(['ID'], axis=1)
 # the only known information is the training dataset, and so the scaler would be fitted into this dataset and further
 # used to transform both validation and testing dataset.
 
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.preprocessing import StandardScaler
-
-scaler = MinMaxScaler().fit(train)
-columns = train.columns
-
-train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
-valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
-test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
+# train_scaled = pd.DataFrame(scaler.transform(train), columns=columns)
+# valid_scaled = pd.DataFrame(scaler.transform(valid), columns=columns)
+# test_scaled = pd.DataFrame(scaler.transform(test), columns=columns)
 
 # Tokens de inicio y final para separar los ultimos valores de los sujetos en training, validation y testing.
 BATCH_SIZE = 128
@@ -97,16 +105,14 @@ def df_to_generator(df):
     df.drop(acc, inplace=True, axis=1)
 
     n_features = df.shape[1]
-    df_generator = TimeseriesGenerator(data=np.array(df), targets=np.array(df_output),
-                                       length=SEQ_SIZE, batch_size=n_features)
-    # df_generator = timeseries_dataset_from_array(data=np.array(df_scaled), targets=np.array(df_output),
-    #                                              sequence_length=SEQ_SIZE)
+    df_generator = TimeseriesGenerator(data=np.array(df), targets=np.array(df_output), length=SEQ_SIZE, batch_size=n_features)
+    # df_generator = timeseries_dataset_from_array(data=np.array(np.array(df)), targets=np.array(df_output), sequence_length=SEQ_SIZE)
 
     return df, df_output, df_generator
 
-train_scaled, train_output, train_generator = df_to_generator(train_scaled)
-valid_scaled, valid_output, valid_generator = df_to_generator(valid_scaled)
-test_scaled, test_output, test_generator = df_to_generator(test_scaled)
+train_scaled, train_output, train_generator = df_to_generator(train)
+valid_scaled, valid_output, valid_generator = df_to_generator(valid)
+test_scaled, test_output, test_generator = df_to_generator(test)
 
 for var in ['df_both', 'train_ids', 'valid_ids', 'test_ids', 'train', 'valid', 'test']:
     exec(f'del {var}')
@@ -116,7 +122,7 @@ for var in ['df_both', 'train_ids', 'valid_ids', 'test_ids', 'train', 'valid', '
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, SimpleRNN, LSTM, GRU
 
-FOLDER = 'biomec'
+FOLDER = 'Dacia'
 
 
 def create_model(model_name=None):
@@ -176,10 +182,10 @@ def create_model(model_name=None):
 N_FEATURES = train_scaled.shape[1]
 METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)',
            'msle': 'Mean Squared Logarithmic Error (MSLE)'}
-EPOCH = 300
+EPOCH = 100
 
 # CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-name = 'mse_down'
+name = 'mse'
 model = create_model(name)
 
 # IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
@@ -322,7 +328,6 @@ def plot_results(predictions, true_values):
 
 
 plot_results(y_prediction[:100, :], y_true[:100, :])
-print('hola')
 
 
 '''
