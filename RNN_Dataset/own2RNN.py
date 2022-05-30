@@ -46,7 +46,9 @@ def get_df():
 
     for i in range(len(file_list)):
         df = pd.read_csv(path+file_list[i])
-        curr_id = df.Subject.astype(str) + '_' + df.Movimiento.astype(str) + '_' + df.Repetition.astype(str)
+        #curr_id = df.Subject.astype(str) + '_' + df.Movimiento.astype(str) + '_' + df.Repetition.astype(str)
+        curr_id = df.Subject.astype(str)
+
         df = pd.DataFrame(MinMaxScaler().fit_transform(df.drop(['Subject', 'Movimiento', 'Repetition', 'Datetime'], axis=1)), columns=l_columns)
         df['ID'] = curr_id
         df_final = pd.concat([df_final, df], axis=0, ignore_index=True)
@@ -60,9 +62,9 @@ def get_df():
 df_both = get_df()
 train_ids = list(set(df_both.ID))
 seed(200)
-test_ids = sample(train_ids, floor(len(train_ids)*0.2))
+test_ids = sample(train_ids, floor(len(train_ids)*0.25))
 seed(500)
-valid_ids = sample(list(set(train_ids) - set(test_ids)), floor(len(train_ids)*0.2))
+valid_ids = sample(list(set(train_ids) - set(test_ids)), floor(len(train_ids)*0.25))
 print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
 print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
       round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
@@ -152,7 +154,7 @@ def create_model(model_name=None):
     # LogCoshError
 
     # tf.keras.losses.MeanSquaredError()
-    rnn.compile(loss=tf.keras.losses.MeanSquaredError(), metrics=METRICS.keys(),
+    rnn.compile(loss=tf.keras.losses.MeanAbsoluteError(), metrics=METRICS.keys(),
                 optimizer=tf.keras.optimizers.Adam(learning_rate=0.000005))
     history = rnn.fit(train_generator, validation_data=valid_generator, shuffle=False,
                       epochs=EPOCH, verbose=2, batch_size=BATCH_SIZE)
@@ -185,13 +187,13 @@ METRICS = {'mae': 'Mean Absolute Error (MAE)', 'mse': 'Mean Squared Error (MSE)'
 EPOCH = 100
 
 # CREATING: Model generation via create_model, name is a parameter to save the model on "saved_models" folder.
-name = 'mse'
+name = 'mae_sub_10'
 model = create_model(name)
 
 # IMPORTING: Model import via the load_model function, models are stored within the "saved_models" folder.
 # from tensorflow.keras.models import load_model
-# name = 'forward_using_target.h5'
-# model = load_model('saved_models/' + name)
+# name = 'mae_E100_S5_B128.h5'
+# model = load_model('saved_models/' + FOLDER + '/' + name)
 
 try:
     model.summary()
@@ -253,13 +255,13 @@ x_arm_scores = [train_scores[5], valid_scores[5], test_scores[5]]
 # dataset available, and so a for loop that changes the bars position have to be employed to visually see the metrics.
 
 bars = ('Training', 'Validation', 'Testing')
-BAR_WIDTH = 0.15
+BAR_WIDTH = 0.05
 y_pos = np.arange(len(bars))
-names = ['Acc_z', 'Acc_y', 'Acc_x', 'Mean']
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+names = ['Leg_z', 'Leg_y', 'Leg_x', 'Arm_z', 'Arm_y', 'Arm_x', 'Mean']
+colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
 
 r2_fig = plt.figure()
-for i, score in enumerate([z_leg_scores, y_leg_scores, x_leg_scores, det_scores]):
+for i, score in enumerate([z_leg_scores, y_leg_scores, x_leg_scores, z_arm_scores, y_arm_scores, x_arm_scores, det_scores]):
     plt.bar([x + BAR_WIDTH*i for x in y_pos], score, width=BAR_WIDTH, label=names[i], color=colors[i])
 plt.title('Coefficient of determination (R Squared) across datasets ({} Epochs)'.format(EPOCH))
 plt.ylabel('Coefficient of determination ($R^{2}$)')
@@ -307,7 +309,7 @@ for i, test_metric in enumerate(['loss'] + list(METRICS.keys())):
     print(test_metric, test_metrics[i])
 
 
-def plot_results(predictions, true_values):
+def plot_results(predictions, true_values, n):
     """
     Uses matplotlib to visually see whether a correlation is being observed, although a subset of the first 100 rows
     is used. As there are thousands of samples and it is nearly impossible to correctly visualize them on one plot.
@@ -318,8 +320,8 @@ def plot_results(predictions, true_values):
 
     for idx, force in enumerate(['Acc_x', 'Acc_y', 'Acc_z']):
         forces_fig = plt.figure()
-        plt.plot(predictions[:100, idx], 'y', label='Predicted')
-        plt.plot(true_values[:100, idx], 'r', label='True')
+        plt.plot(predictions[:n, idx], 'y', label='Predicted')
+        plt.plot(true_values[:n, idx], 'r', label='True')
         plt.title('True and predicted force of {}'.format(force))
         plt.xlabel('Index')
         plt.ylabel('Acceleration (m/s^2)')
@@ -327,7 +329,7 @@ def plot_results(predictions, true_values):
         forces_fig.savefig('figures/{}/{}_predict_{}.png'.format(FOLDER, name, force))
 
 
-plot_results(y_prediction[:100, :], y_true[:100, :])
+plot_results(y_prediction, y_true, n=350)
 
 
 '''
