@@ -46,7 +46,9 @@ def get_df():
 
     for i in range(len(file_list)):
         df = pd.read_csv(path+file_list[i])
-        curr_id = df.Subject.astype(str) + '_' + df.Movimiento.astype(str) + '_' + df.Repetition.astype(str)
+        #curr_id = df.Subject.astype(str) + '_' + df.Movimiento.astype(str) + '_' + df.Repetition.astype(str)
+        curr_id = df.Subject.astype(str)
+
         df = pd.DataFrame(MinMaxScaler().fit_transform(df.drop(['Subject', 'Movimiento', 'Repetition', 'Datetime'], axis=1)), columns=l_columns)
         df['ID'] = curr_id
         df_final = pd.concat([df_final, df], axis=0, ignore_index=True)

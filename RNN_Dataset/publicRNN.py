@@ -72,15 +72,27 @@ def get_df(vel, sampling):
     # A similar for loop is being implemented for the markers indices, although, the index of this DataFrame corresponds
     # to 2n, due to a difference in sampling frequency between forces and markers. And thus "space" needs to be
     # generated to implement an Up-Sampling technique and thus have the same granularity across both DataFrames.
-    markers_columns = pd.read_csv(path + file_list[markers_idx[0]], nrows=0, sep='\t').columns
+    all_markers_columns = pd.read_csv(path + file_list[markers_idx[0]], nrows=0, sep='\t').columns
+    removed_columns = [col + dim for dim in ['X', 'Y', 'Z'] for col in ['L.ASIS', 'R.MT1', 'L.MT1']]
+    print(len(all_markers_columns))
+    markers_columns = list(set(all_markers_columns).difference(set(removed_columns)))
+
     df_markers = pd.DataFrame(columns=markers_columns)
+
+    # names_markers = set(list(markers_columns))
     for idx in markers_idx:
         df_temp = pd.DataFrame(MinMaxScaler().fit_transform(pd.read_csv(path + file_list[idx], sep='\t')
+                                                              .drop(removed_columns, axis=1)
                                                               .interpolate(method='linear', axis=0)
                                                               .reset_index(drop=True)),
                                columns=markers_columns)
+
         df_markers = pd.concat([df_markers, df_temp], ignore_index=True)
     df_markers = df_markers.dropna(axis=1, how='any')
+    print(df_markers.shape)
+    print(df_markers.columns)
+    exit()
+    # print(names_markers.difference(set(list(df_markers.columns)) ))
     # Now, a "fill" DataFrame is being generated for each feature, this dataframe will create NANs for each in between
     # space that is not being covered by the "df_markers", which are (2n + 1) indices. After the merge is completed,
     # the columns from the fill DataFrame are removed and a linear interpolation method is being implemented on the
@@ -114,6 +126,9 @@ df_both_25, df_both_35, df_both_45 = get_df('T25', s_method), get_df('T35', s_me
 
 df_both = (pd.concat([df_both_25, df_both_35, df_both_45], ignore_index=True)
            .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
+print(df_both.shape)
+exit()
+
 #df_both = (pd.concat([df_both_25], ignore_index=True)
 #           .astype(np.float32).dropna(axis=1, how='any').reset_index(drop=True))
 print(df_both.head())
