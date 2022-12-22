@@ -65,12 +65,11 @@ seed(200)
 test_ids = sample(train_ids, floor(len(train_ids)*0.25))
 seed(500)
 valid_ids = sample(list(set(train_ids) - set(test_ids)), floor(len(train_ids)*0.25))
-print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
-print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
-      round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
-
+# print(list(set(train_ids) - set(valid_ids + test_ids)), valid_ids, test_ids)
+# print(round(len(list(set(train_ids) - set(valid_ids + test_ids)))/len(train_ids) * 100, 2),
+#       round(len(valid_ids)/len(train_ids) * 100, 2), round(len(test_ids)/len(train_ids) * 100, 2))
+train_ids = list(set(train_ids) - set(valid_ids + test_ids))
 print(train_ids, valid_ids, test_ids)
-exit()
 # The whole dataset is divided to a training, validation and testing set. P_TEST defines the ratio from the dataset
 # into the train_set and test dataset, while P_VALID defines the ratio from the train_set to training and validation.
 
@@ -93,6 +92,7 @@ SEQ_SIZE = 10
 from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
 # from tensorflow.keras.preprocessing import timeseries_dataset_from_array
 
+
 def df_to_generator(df):
     """
     This function takes a scaled DataFrame and separates the source and target variables into separate DataFrames, it
@@ -103,7 +103,7 @@ def df_to_generator(df):
     depending on whether they have source or target variables, and a generator to train the RNN.
     """
 
-    acc = ['Pierna_acc_z','Pierna_acc_y','Pierna_acc_x','Brazo_acc_x','Brazo_acc_y','Brazo_acc_z']
+    acc = ['Pierna_acc_z','Pierna_acc_y','Pierna_acc_x','Brazo_acc_z','Brazo_acc_y','Brazo_acc_x']
     df_output = df[acc]
 
     df.drop(acc, inplace=True, axis=1)
@@ -113,6 +113,7 @@ def df_to_generator(df):
     # df_generator = timeseries_dataset_from_array(data=np.array(np.array(df)), targets=np.array(df_output), sequence_length=SEQ_SIZE)
 
     return df, df_output, df_generator
+
 
 train_scaled, train_output, train_generator = df_to_generator(train)
 valid_scaled, valid_output, valid_generator = df_to_generator(valid)
@@ -221,7 +222,7 @@ def model_evaluation(predictions, true_values):
     from sklearn.metrics import r2_score
     scores_r2 = [r2_score(true_values[SEQ_SIZE:, num], predictions[:, num]) for num in range(6)]
 
-    from scipy.stats.stats import pearsonr
+    from scipy.stats import pearsonr
     scores_pearson = [np.abs(pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[0]) for num in range(6)]
     p_pearson = [pearsonr(true_values[SEQ_SIZE:, num], predictions[:, num])[1] for num in range(6)]
 
