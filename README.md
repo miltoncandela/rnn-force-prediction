@@ -1,6 +1,5 @@
 ## Citation
-
-If you find anything in the paper or repository useful, please consider citing:
+If you find anything useful in the [Biomechanics Digital Twin: Markerless Joint Acceleration Prediction Using Machine Learning and Computer Vision (IEEE, 2023)](https://doi.org/10.1109/IEEECONF56852.2023.10104757) conference paper, [Multi-Output Sequential Deep Learning Model for Athlete Force Prediction on a Treadmill Using 3D Markers (Applied Sciences, 2022)](https://doi.org/10.3390/app12115424) journal paper, or repository, please consider citing:
 
 ```
 @article{CandelaLeal2022,
