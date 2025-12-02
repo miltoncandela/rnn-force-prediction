@@ -1,5 +1,5 @@
 ## Citation
-If you find anything useful in the [Biomechanics Digital Twin: Markerless Joint Acceleration Prediction Using Machine Learning and Computer Vision (IEEE, 2023)](https://doi.org/10.1109/IEEECONF56852.2023.10104757) conference paper, [Multi-Output Sequential Deep Learning Model for Athlete Force Prediction on a Treadmill Using 3D Markers (Applied Sciences, 2022)](https://doi.org/10.3390/app12115424) journal paper, or repository, please consider citing:
+If you find anything useful in the journal article, conference proceedings, or repository, please consider citing:
 
 ```
 @article{CandelaLeal2022,
@@ -27,3 +27,10 @@ If you find anything useful in the [Biomechanics Digital Twin: Markerless Joint 
   booktitle = {2023 Future of Educational Innovation-Workshop Series Data in Action}
 }
 ```
+> Candela-Leal MO, Gutierrez-Flores EA, Presbitero-Espinosa G, Sujatha-Ravindran A, Ramirez-Mendoza RA, Lozoya-Santos JJ, & Ramirez-Moreno MA (2022)<br>
+> **Multi-Output Sequential Deep Learning Model for Athlete Force Prediction on a Treadmill Using 3D Markers**<br>
+> Applied Sciences, 12(11), 5424. https://doi.org/10.3390/app12115424
+
+> Leal MOC, Diaz DM, Romo CO, Herrera AJA, Herrera JEM, Ramirez AEM, Cruz LOS, Gomez CFC, Ruiz SXC, Flores EAG, Hernandez KLR, Jimenez EAD, Mendoza RAR, Espinosa GP, Santos JJL, & Moreno, MAR (2023)<br>
+> **Biomechanics Digital Twin: Markerless Joint Acceleration Prediction Using Machine Learning and Computer Vision**<br>
+> Proceedings of the Future of Educational Innovation-Workshop Series: Data in Action. https://doi.org/10.1109/ieeeconf56852.2023.10104757
